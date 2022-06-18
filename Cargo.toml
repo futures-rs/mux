@@ -1,0 +1,21 @@
+[package]
+edition = "2021"
+name = "futures-mux"
+version = "0.1.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.57"
+async-std = {version = "1.11.0", features = ["attributes", "default"]}
+futures = {version = "0.3.21"}
+futures-erasure = {git = "https://github.com/futures-rs/erasure.git"}
+log = "0.4.16"
+queues = "1.1.0"
+
+[features]
+async_std = []
+
+[dev-dependencies]
+
+async-std = {version = "1.11.0", features = ["attributes", "default"]}
