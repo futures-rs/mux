@@ -9,12 +9,13 @@ pub trait MuxStream: Stream {
     fn mux_incoming<MX, Id, Input>(
         self,
         mx: Arc<Mutex<MX>>,
-    ) -> AnyStream<Result<(Id, MX::Input), MX::Error>>
+    ) -> AnyStream<Result<(Id, MX::Input), anyhow::Error>>
     where
         MX: MultiplexerIncoming<Self::Item, Input = Input, Id = Id>,
         Self: Sized + Unpin,
+        MX::Error: std::error::Error + Send + Sync + 'static,
     {
-        self.map(move |item| mx.lock().unwrap().incoming(item))
+        self.map(move |item| mx.lock().unwrap().incoming(item).map_err(|err| err.into()))
             .to_any_stream()
     }
 }

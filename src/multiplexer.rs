@@ -14,18 +14,22 @@ pub trait MultiplexerIncoming<MuxInput> {
     type Id;
 
     fn incoming(&mut self, data: MuxInput) -> Result<(Self::Id, Self::Input), Self::Error>;
+
+    fn disconnect(&mut self, id: Self::Id);
 }
 
-pub trait MultiplexerOutgoing<Output, Id> {
+pub trait MultiplexerOutgoing<Output> {
     type Error: std::error::Error;
 
     type MuxOutput;
 
+    type Id;
+
     /// Pack underlying protocol output datagram to mux datagram and return new channel id if necessary.
     ///
     /// * `id` - The outgoing mux channel id, if id is `None` indicate that this is a new channel outgoing data
-    fn outgoing(&mut self, data: Output, id: Id) -> Result<Self::MuxOutput, Self::Error>;
+    fn outgoing(&mut self, data: Output, id: Self::Id) -> Result<Self::MuxOutput, Self::Error>;
 
     /// Create new channel and return channel id
-    fn connect(&mut self) -> Result<Id, Self::Error>;
+    fn connect(&mut self) -> Result<Self::Id, Self::Error>;
 }

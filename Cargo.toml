@@ -8,6 +8,7 @@ version = "0.1.0"
 [dependencies]
 anyhow = "1.0.57"
 async-std = {version = "1.11.0", features = ["attributes", "default"]}
+backtrace = "0.3.65"
 futures = {version = "0.3.21"}
 futures-any = {git = "https://github.com/futures-rs/any.git"}
 log = "0.4.16"
@@ -17,5 +18,7 @@ queues = "1.1.0"
 async_std = []
 
 [dev-dependencies]
-
 async-std = {version = "1.11.0", features = ["attributes", "default"]}
+backtrace = "0.3.65"
+dotenv = "0.15.0"
+pretty_env_logger = "0.4.0"
