@@ -9,7 +9,7 @@ version = "0.1.0"
 anyhow = "1.0.57"
 async-std = {version = "1.11.0", features = ["attributes", "default"]}
 futures = {version = "0.3.21"}
-futures-erasure = {git = "https://github.com/futures-rs/erasure.git"}
+futures-any = {git = "https://github.com/futures-rs/any.git"}
 log = "0.4.16"
 queues = "1.1.0"
 
