@@ -149,7 +149,6 @@ pub struct Multiplexer<Id, Output, Input> {
     pub sender: MultiplexerSender<Id, Output>,
     pub receiver: MultiplexerReceiver<Id, Input>,
     pub incoming: AnyStream<MultiplexerChannel<Id, Output, Input>>,
-    // pub incoming: Receiver<(Id, Receiver<Input>)>,
     pub connect: Box<dyn FnMut() -> Result<MultiplexerChannel<Id, Output, Input>, anyhow::Error>>,
 }
 
@@ -351,11 +350,11 @@ mod tests {
 
         futures::pin_mut!(write);
 
-        let mx = Multiplexer::new(read, write, NullMultiplexer(0), 2);
-
-        let mut connect = mx.connect;
-
-        let mut sender = mx.sender;
+        let Multiplexer {
+            mut sender,
+            mut connect,
+            ..
+        } = Multiplexer::new(read, write, NullMultiplexer(0), 2);
 
         spawn(async move {
             sender.run().await?;
