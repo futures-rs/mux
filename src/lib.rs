@@ -332,4 +332,48 @@ mod tests {
 
         Ok(())
     }
+
+    #[async_std::test]
+    async fn test_connect() -> anyhow::Result<()> {
+        pretty_env_logger::init();
+
+        let mut i = 0;
+
+        let read = futures::stream::poll_fn(|_| -> Poll<Option<String>> {
+            i += 1;
+            Poll::Ready(Some(format!("hello {}", i)))
+        });
+
+        let write = futures::sink::unfold((), |_, data: String| async move {
+            log::debug!("send {}", data);
+            Ok::<_, futures::never::Never>(())
+        });
+
+        futures::pin_mut!(write);
+
+        let mx = Multiplexer::new(read, write, NullMultiplexer(0), 2);
+
+        let mut connect = mx.connect;
+
+        let mut sender = mx.sender;
+
+        spawn(async move {
+            sender.run().await?;
+
+            log::debug!("sender stop");
+
+            Ok::<(), anyhow::Error>(())
+        });
+
+        let mut channel = connect()?;
+
+        for i in 0..100 {
+            channel
+                .sink
+                .send((channel.id, format!("Echo {}", i)))
+                .await?;
+        }
+
+        Ok(())
+    }
 }
