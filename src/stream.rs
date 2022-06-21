@@ -15,33 +15,26 @@ pub trait MuxStream: Stream {
         Self: Sized + Unpin,
         MX::Error: std::error::Error + Send + Sync + 'static,
     {
-        self.flat_map(|item| match mx.lock().unwrap().incoming(item) {
-            Ok((id, input, disconnect)) => {
-                let stream = if disconnect {
-                    let stream = futures::stream::once(async { Ok((id, input)) })
-                        .chain(futures::stream::empty());
+        self.flat_map(move |item| {
+            log::debug!("incoming ...");
+
+            match mx.lock().unwrap().incoming(item) {
+                Ok(data) => futures::stream::iter(
+                    data.into_iter()
+                        .map(|(id, item)| Ok((id, item)))
+                        .collect::<Vec<_>>(),
+                )
+                .to_any_stream(),
+                Err(err) => {
+                    log::debug!("incoming ... err");
+                    let stream = futures::stream::once(async {
+                        Err::<(Id, MX::Input), anyhow::Error>(err.into())
+                    });
 
                     futures::pin_mut!(stream);
 
                     stream.to_any_stream()
-                } else {
-                    let stream = futures::stream::once(async { Ok((id, input)) });
-
-                    futures::pin_mut!(stream);
-
-                    stream.to_any_stream()
-                };
-
-                stream
-            }
-            Err(err) => {
-                let stream = futures::stream::once(async {
-                    Err::<(Id, MX::Input), anyhow::Error>(err.into())
-                });
-
-                futures::pin_mut!(stream);
-
-                stream.to_any_stream()
+                }
             }
         })
         .to_any_stream()

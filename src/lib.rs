@@ -228,9 +228,9 @@ mod tests {
         type Id = u32;
         type Input = String;
 
-        fn incoming(&mut self, data: String) -> Result<(Self::Id, Self::Input, bool), Self::Error> {
-            // log::debug!("incoming .... {}", data);
-            Ok((self.0, data, false))
+        fn incoming(&mut self, data: String) -> Result<Vec<(Self::Id, Self::Input)>, Self::Error> {
+            log::debug!("incoming .... {}", data);
+            Ok(vec![(self.0, data)])
         }
 
         fn disconnect(&mut self, _: Self::Id) {
@@ -284,11 +284,11 @@ mod tests {
         });
 
         while let Some(mut channel) = incoming.next().await {
-            // log::debug!("accept {}", channel.id);
+            log::debug!("accept {}", channel.id);
             let handle = spawn(async move {
                 while let Some(data) = channel.stream.next().await {
                     log::debug!("recv {} {}", channel.id, data);
-                    channel.sink.send((channel.id, "Echo".to_owned())).await?;
+                    // channel.sink.send((channel.id, "Echo".to_owned())).await?;
                 }
 
                 Ok::<(), anyhow::Error>(())
