@@ -228,9 +228,9 @@ mod tests {
         type Id = u32;
         type Input = String;
 
-        fn incoming(&mut self, data: String) -> Result<(Self::Id, Self::Input), Self::Error> {
+        fn incoming(&mut self, data: String) -> Result<(Self::Id, Self::Input, bool), Self::Error> {
             // log::debug!("incoming .... {}", data);
-            Ok((self.0, data))
+            Ok((self.0, data, false))
         }
 
         fn disconnect(&mut self, _: Self::Id) {
