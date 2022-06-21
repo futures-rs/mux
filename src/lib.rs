@@ -4,7 +4,6 @@ pub mod stream;
 
 use std::{
     collections::HashMap,
-    fmt::Display,
     hash::Hash,
     marker::PhantomData,
     ops::{Deref, DerefMut},
@@ -33,7 +32,7 @@ pub struct MultiplexerLoop<Id, Output, Input> {
 
 impl<Id, Output, Input> MultiplexerLoop<Id, Output, Input>
 where
-    Id: Eq + Hash + Clone + Display,
+    Id: Eq + Hash + Clone,
 {
     pub fn new(
         stream: AnyStream<Result<(Id, Input), anyhow::Error>>,
@@ -56,25 +55,21 @@ where
 
     pub async fn run(&mut self) -> Result<(), anyhow::Error> {
         loop {
-            if let None = self.receiver.next().await {
-                return Ok(());
-            }
-
-            // match futures::future::select(self.receiver.next(), self.stream.next()).await {
-            //     Either::Left((left, _)) => match left {
-            //         Some((id, output)) => {
-            //             self.dispatch_outgoing(id, output).await?;
-            //         }
-            //         None => return Ok(()),
-            //     },
-            //     Either::Right((right, _)) => match right {
-            //         Some(Ok((id, input))) => {
-            //             self.dipsatch_incoming(id, input).await?;
-            //         }
-            //         Some(Err(err)) => return Err(err),
-            //         None => return Ok(()),
-            //     },
-            // };
+            match futures::future::select(self.receiver.next(), self.stream.next()).await {
+                Either::Left((left, _)) => match left {
+                    Some((id, output)) => {
+                        self.dispatch_outgoing(id, output).await?;
+                    }
+                    None => return Ok(()),
+                },
+                Either::Right((right, _)) => match right {
+                    Some(Ok((id, input))) => {
+                        self.dipsatch_incoming(id, input).await?;
+                    }
+                    Some(Err(err)) => return Err(err),
+                    None => return Ok(()),
+                },
+            };
         }
     }
 
@@ -180,10 +175,9 @@ impl<Id, Output, Input> Multiplexer<Id, Output, Input> {
             + MultiplexerIncoming<R::Item, Error = Error, Input = Input, Id = Id>
             + Send,
         W::Error: std::error::Error + Send + Sync + 'static,
-        Id: Eq + Hash + Clone + Display,
-        Input: 'static + Display,
-        Output: 'static + Display,
-        Id: 'static,
+        Id: Eq + Hash + Clone + 'static,
+        Input: 'static,
+        Output: 'static,
         MX: 'static,
     {
         let mx = Arc::new(Mutex::new(mx));
@@ -235,16 +229,12 @@ impl<Id, Output, Input> Multiplexer<Id, Output, Input> {
 
         let incoming = on_connect_receiver
             .map(move |(id, receiver)| {
-                log::debug!("new incoming {}", id.clone());
-
                 let channel = MultiplexerChannel {
                     id: id.clone(),
                     sink: output_sender.clone(),
                     stream: receiver,
                     _marker: PhantomData,
                 };
-
-                log::debug!("new connnect created {}", id);
 
                 channel
             })

@@ -1,4 +1,4 @@
-use std::{fmt::Display, sync::Arc};
+use std::sync::Arc;
 
 use crate::multiplexer::MultiplexerOutgoing;
 use futures::{Sink, SinkExt};
@@ -15,8 +15,6 @@ pub trait MuxSink<Item>: Sink<Item> {
         Self: Sized + Unpin,
         MX::Error: std::error::Error + Send + Sync + 'static,
         Self::Error: std::error::Error + Send + Sync + 'static,
-        MX::Id: Display,
-        Output: Display,
     {
         self.with(move |(id, output)| {
             let mx_output = mx.lock().unwrap().outgoing(output, id);
