@@ -20,7 +20,7 @@ use sink::MuxSink;
 use stream::MuxStream;
 
 pub struct MultiplexerLoop<Id, Output, Input> {
-    stream: AnyStream<Result<(Id, Input), anyhow::Error>>,
+    stream: AnyStream<Result<(Id, Option<Input>), anyhow::Error>>,
     dispatcher: Arc<Mutex<HashMap<Id, Sender<Input>>>>,
     on_connect: Sender<(Id, Receiver<Input>)>,
     on_disconnect: Box<dyn FnMut(Id) + Send>,
@@ -34,7 +34,7 @@ where
     Id: Eq + Hash + Clone,
 {
     pub fn new(
-        stream: AnyStream<Result<(Id, Input), anyhow::Error>>,
+        stream: AnyStream<Result<(Id, Option<Input>), anyhow::Error>>,
         sink: AnySink<(Id, Output), anyhow::Error>,
         receiver: Receiver<(Id, Output)>,
         on_connect: Sender<(Id, Receiver<Input>)>,
@@ -85,8 +85,16 @@ where
         Ok(())
     }
 
-    async fn dipsatch_incoming(&mut self, id: Id, input: Input) -> Result<(), anyhow::Error> {
+    async fn dipsatch_incoming(
+        &mut self,
+        id: Id,
+        input: Option<Input>,
+    ) -> Result<(), anyhow::Error> {
         let mut sender = self.dispatcher.lock().unwrap().remove(&id);
+
+        if input.is_none() && sender.is_some() {
+            return Ok(());
+        }
 
         if sender.is_none() {
             let (s, r) = channel::<Input>(self.cached);
@@ -100,7 +108,7 @@ where
 
         let mut sender = sender.unwrap();
 
-        match sender.send(input).await {
+        match sender.send(input.unwrap()).await {
             Err(err) => {
                 // log::debug!("disconnect {}", id);
                 if err.is_disconnected() {
@@ -228,9 +236,9 @@ mod tests {
         type Id = u32;
         type Input = String;
 
-        fn incoming(&mut self, data: String) -> Result<Vec<(Self::Id, Self::Input)>, Self::Error> {
+        fn incoming(&mut self, data: String) -> Result<(Self::Id, Self::Input, bool), Self::Error> {
             log::debug!("incoming .... {}", data);
-            Ok(vec![(self.0, data)])
+            Ok((self.0, data, false))
         }
 
         fn disconnect(&mut self, _: Self::Id) {

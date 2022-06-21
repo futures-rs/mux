@@ -14,7 +14,7 @@ pub trait MultiplexerIncoming<MuxInput> {
     type Id;
 
     /// The success returns value is tuple (id,input,disconnect_flag)
-    fn incoming(&mut self, data: MuxInput) -> Result<Vec<(Self::Id, Self::Input)>, Self::Error>;
+    fn incoming(&mut self, data: MuxInput) -> Result<(Self::Id, Self::Input, bool), Self::Error>;
 
     fn disconnect(&mut self, id: Self::Id);
 }
