@@ -6,7 +6,6 @@ use std::{
     collections::HashMap,
     hash::Hash,
     marker::PhantomData,
-    ops::{Deref, DerefMut},
     sync::{Arc, Mutex},
 };
 
@@ -122,47 +121,17 @@ where
 pub struct MultiplexerChannel<Id, Output, Input> {
     pub id: Id,
     pub stream: Receiver<Input>,
-    pub sink: SenderWraper<(Id, Output)>,
+    pub sink: Sender<(Id, Output)>,
     _marker: PhantomData<Output>,
 }
+
+pub type Connector<Id, Output, Input> =
+    Box<dyn FnMut() -> Result<MultiplexerChannel<Id, Output, Input>, anyhow::Error>>;
 
 pub struct Multiplexer<Id, Output, Input> {
     pub event_loop: MultiplexerLoop<Id, Output, Input>,
     pub incoming: AnyStream<MultiplexerChannel<Id, Output, Input>>,
-    pub connect: Box<dyn FnMut() -> Result<MultiplexerChannel<Id, Output, Input>, anyhow::Error>>,
-}
-
-#[derive(Debug)]
-pub struct SenderWraper<T> {
-    inner: Sender<T>,
-}
-
-impl<T> Deref for SenderWraper<T> {
-    type Target = Sender<T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl<T> DerefMut for SenderWraper<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
-
-impl<T> Clone for SenderWraper<T> {
-    fn clone(&self) -> Self {
-        SenderWraper {
-            inner: self.inner.clone(),
-        }
-    }
-}
-
-impl<T> Drop for SenderWraper<T> {
-    fn drop(&mut self) {
-        log::debug!("Drop sender");
-    }
+    pub connect: Connector<Id, Output, Input>,
 }
 
 impl<Id, Output, Input> Multiplexer<Id, Output, Input> {
@@ -206,11 +175,7 @@ impl<Id, Output, Input> Multiplexer<Id, Output, Input> {
 
         let dispatcher = event_loop.dispatcher.clone();
 
-        let output_sender = SenderWraper {
-            inner: output_sender,
-        };
-
-        let output_sender_connect: SenderWraper<(Id, Output)> = output_sender.clone();
+        let output_sender_connect = output_sender.clone();
 
         let connect = move || -> Result<MultiplexerChannel<Id, Output, Input>, anyhow::Error> {
             let id = mx.lock().unwrap().connect()?;
