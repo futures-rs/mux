@@ -7,133 +7,119 @@ use std::{
     fmt::Display,
     hash::Hash,
     marker::PhantomData,
+    ops::{Deref, DerefMut},
     sync::{Arc, Mutex},
 };
 
 use futures::{
     channel::mpsc::{channel, Receiver, Sender},
-    Sink, SinkExt, Stream, StreamExt, TryStreamExt,
+    future::Either,
+    Sink, SinkExt, Stream, StreamExt,
 };
 use futures_any::stream_sink::{AnySink, AnyStream, AnyStreamEx};
 use multiplexer::{MultiplexerIncoming, MultiplexerOutgoing};
 use sink::MuxSink;
 use stream::MuxStream;
 
-pub struct MultiplexerReceiver<Id, Input> {
+pub struct MultiplexerLoop<Id, Output, Input> {
     stream: AnyStream<Result<(Id, Input), anyhow::Error>>,
     dispatcher: Arc<Mutex<HashMap<Id, Sender<Input>>>>,
     on_connect: Sender<(Id, Receiver<Input>)>,
     on_disconnect: Box<dyn FnMut(Id) + Send>,
     cached: usize,
+    sink: AnySink<(Id, Output), anyhow::Error>,
+    receiver: Receiver<(Id, Output)>,
 }
 
-impl<Id, Input> MultiplexerReceiver<Id, Input>
+impl<Id, Output, Input> MultiplexerLoop<Id, Output, Input>
 where
     Id: Eq + Hash + Clone + Display,
 {
     pub fn new(
         stream: AnyStream<Result<(Id, Input), anyhow::Error>>,
+        sink: AnySink<(Id, Output), anyhow::Error>,
+        receiver: Receiver<(Id, Output)>,
         on_connect: Sender<(Id, Receiver<Input>)>,
         on_disconnect: Box<dyn FnMut(Id) + Send>,
         cached: usize,
     ) -> Self {
-        MultiplexerReceiver {
+        MultiplexerLoop {
             stream,
             dispatcher: Default::default(),
             on_connect,
             on_disconnect,
             cached,
-        }
-    }
-
-    pub async fn run(&mut self) -> Result<(), anyhow::Error> {
-        while let Some((id, input)) = self.stream.try_next().await? {
-            let mut sender = self.dispatcher.lock().unwrap().remove(&id);
-
-            if sender.is_none() {
-                let (s, r) = channel::<Input>(self.cached);
-
-                sender = Some(s);
-
-                // log::debug!("new connect {}", id);
-
-                self.on_connect.send((id.clone(), r)).await?;
-            }
-
-            let mut sender = sender.unwrap();
-
-            match sender.send(input).await {
-                Err(err) => {
-                    // log::debug!("disconnect {}", id);
-                    if err.is_disconnected() {
-                        let f = &mut self.on_disconnect;
-                        f(id);
-                        continue;
-                    }
-                }
-                _ => {}
-            }
-
-            self.dispatcher.lock().unwrap().insert(id, sender);
-        }
-
-        Ok(())
-    }
-}
-
-// use backtrace::Backtrace;
-
-impl<Id, Input> Drop for MultiplexerReceiver<Id, Input> {
-    fn drop(&mut self) {
-        log::debug!("Drop MultiplexerReceive");
-    }
-}
-
-pub struct MultiplexerSender<Id, Output> {
-    sink: AnySink<(Id, Output), anyhow::Error>,
-    receiver: Receiver<(Id, Output)>,
-    on_disconnect: Box<dyn FnMut(Id) + Send>,
-}
-
-impl<Id, Output> MultiplexerSender<Id, Output>
-where
-    Id: Eq + Hash + Clone,
-{
-    pub fn new(
-        sink: AnySink<(Id, Output), anyhow::Error>,
-        receiver: Receiver<(Id, Output)>,
-        on_disconnect: Box<dyn FnMut(Id) + Send>,
-    ) -> Self {
-        MultiplexerSender {
-            sink,
             receiver,
-            on_disconnect,
+            sink,
         }
     }
 
     pub async fn run(&mut self) -> Result<(), anyhow::Error> {
-        log::debug!("MultiplexerSender run...");
-        while let Some(output) = self.receiver.next().await {
-            let id = output.0.clone();
-            match self.sink.send(output).await {
-                Err(err) => {
-                    log::error!("{:?}", err);
-                    let disconnect = &mut self.on_disconnect;
-                    disconnect(id);
-                }
-                _ => {}
+        loop {
+            if let None = self.receiver.next().await {
+                return Ok(());
             }
-        }
 
-        log::debug!("MultiplexerSender stop");
+            // match futures::future::select(self.receiver.next(), self.stream.next()).await {
+            //     Either::Left((left, _)) => match left {
+            //         Some((id, output)) => {
+            //             self.dispatch_outgoing(id, output).await?;
+            //         }
+            //         None => return Ok(()),
+            //     },
+            //     Either::Right((right, _)) => match right {
+            //         Some(Ok((id, input))) => {
+            //             self.dipsatch_incoming(id, input).await?;
+            //         }
+            //         Some(Err(err)) => return Err(err),
+            //         None => return Ok(()),
+            //     },
+            // };
+        }
+    }
+
+    async fn dispatch_outgoing(&mut self, id: Id, output: Output) -> Result<(), anyhow::Error> {
+        match self.sink.send((id.clone(), output)).await {
+            Err(err) => {
+                log::error!("{:?}", err);
+                let disconnect = &mut self.on_disconnect;
+                disconnect(id);
+            }
+            _ => {}
+        };
 
         Ok(())
     }
-}
 
-impl<Id, Output> Drop for MultiplexerSender<Id, Output> {
-    fn drop(&mut self) {
-        log::debug!("Drop MultiplexerSender");
+    async fn dipsatch_incoming(&mut self, id: Id, input: Input) -> Result<(), anyhow::Error> {
+        let mut sender = self.dispatcher.lock().unwrap().remove(&id);
+
+        if sender.is_none() {
+            let (s, r) = channel::<Input>(self.cached);
+
+            sender = Some(s);
+
+            // log::debug!("new connect {}", id);
+
+            self.on_connect.send((id.clone(), r)).await?;
+        }
+
+        let mut sender = sender.unwrap();
+
+        match sender.send(input).await {
+            Err(err) => {
+                // log::debug!("disconnect {}", id);
+                if err.is_disconnected() {
+                    let f = &mut self.on_disconnect;
+                    f(id);
+                    return Ok(());
+                }
+            }
+            _ => {}
+        }
+
+        self.dispatcher.lock().unwrap().insert(id, sender);
+        Ok(())
     }
 }
 
@@ -141,15 +127,47 @@ impl<Id, Output> Drop for MultiplexerSender<Id, Output> {
 pub struct MultiplexerChannel<Id, Output, Input> {
     pub id: Id,
     pub stream: Receiver<Input>,
-    pub sink: Sender<(Id, Output)>,
+    pub sink: SenderWraper<(Id, Output)>,
     _marker: PhantomData<Output>,
 }
 
 pub struct Multiplexer<Id, Output, Input> {
-    pub sender: MultiplexerSender<Id, Output>,
-    pub receiver: MultiplexerReceiver<Id, Input>,
+    pub event_loop: MultiplexerLoop<Id, Output, Input>,
     pub incoming: AnyStream<MultiplexerChannel<Id, Output, Input>>,
     pub connect: Box<dyn FnMut() -> Result<MultiplexerChannel<Id, Output, Input>, anyhow::Error>>,
+}
+
+#[derive(Debug)]
+pub struct SenderWraper<T> {
+    inner: Sender<T>,
+}
+
+impl<T> Deref for SenderWraper<T> {
+    type Target = Sender<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<T> DerefMut for SenderWraper<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl<T> Clone for SenderWraper<T> {
+    fn clone(&self) -> Self {
+        SenderWraper {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<T> Drop for SenderWraper<T> {
+    fn drop(&mut self) {
+        log::debug!("Drop sender");
+    }
 }
 
 impl<Id, Output, Input> Multiplexer<Id, Output, Input> {
@@ -181,18 +199,24 @@ impl<Id, Output, Input> Multiplexer<Id, Output, Input> {
             mx_disconnect.lock().unwrap().disconnect(id);
         });
 
-        let receiver =
-            MultiplexerReceiver::new(stream, on_connct_sender, on_disconnect.clone(), cached);
-
         let (output_sender, output_receiver) = channel::<(Id, Output)>(cached);
 
-        let sender = MultiplexerSender::new(sink, output_receiver, on_disconnect);
+        let event_loop = MultiplexerLoop::new(
+            stream,
+            sink,
+            output_receiver,
+            on_connct_sender,
+            on_disconnect.clone(),
+            cached,
+        );
 
-        let dispatcher = receiver.dispatcher.clone();
+        let dispatcher = event_loop.dispatcher.clone();
 
-        // let output_sender = Arc::new(output_sender);
+        let output_sender = SenderWraper {
+            inner: output_sender,
+        };
 
-        let output_sender_connect = output_sender.clone();
+        let output_sender_connect: SenderWraper<(Id, Output)> = output_sender.clone();
 
         let connect = move || -> Result<MultiplexerChannel<Id, Output, Input>, anyhow::Error> {
             let id = mx.lock().unwrap().connect()?;
@@ -227,8 +251,7 @@ impl<Id, Output, Input> Multiplexer<Id, Output, Input> {
             .to_any_stream();
 
         Multiplexer {
-            sender,
-            receiver,
+            event_loop,
             incoming,
             connect: Box::new(connect),
         }
@@ -293,22 +316,14 @@ mod tests {
 
         futures::pin_mut!(write);
 
-        let mx = Multiplexer::new(read, write, NullMultiplexer(0), 2);
-
-        let mut receiver = mx.receiver;
-        let mut sender = mx.sender;
-        let mut incoming = mx.incoming;
-
-        spawn(async move {
-            receiver.run().await?;
-
-            Ok::<(), anyhow::Error>(())
-        });
+        let Multiplexer {
+            mut event_loop,
+            mut incoming,
+            ..
+        } = Multiplexer::new(read, write, NullMultiplexer(0), 2);
 
         spawn(async move {
-            sender.run().await?;
-
-            log::debug!("sender stop");
+            event_loop.run().await?;
 
             Ok::<(), anyhow::Error>(())
         });
@@ -336,12 +351,7 @@ mod tests {
     async fn test_connect() -> anyhow::Result<()> {
         pretty_env_logger::init();
 
-        let mut i = 0;
-
-        let read = futures::stream::poll_fn(|_| -> Poll<Option<String>> {
-            i += 1;
-            Poll::Ready(Some(format!("hello {}", i)))
-        });
+        let read = futures::stream::poll_fn(|_| -> Poll<Option<String>> { Poll::Pending });
 
         let write = futures::sink::unfold((), |_, data: String| async move {
             log::debug!("send {}", data);
@@ -350,27 +360,32 @@ mod tests {
 
         futures::pin_mut!(write);
 
-        let Multiplexer {
-            mut sender,
-            mut connect,
-            ..
-        } = Multiplexer::new(read, write, NullMultiplexer(0), 2);
+        {
+            let Multiplexer {
+                mut event_loop,
+                mut connect,
+                ..
+            } = Multiplexer::new(read, write, NullMultiplexer(0), 2);
 
-        spawn(async move {
-            sender.run().await?;
+            spawn(async move {
+                log::debug!("start event loop");
 
-            log::debug!("sender stop");
+                let result = event_loop.run().await;
 
-            Ok::<(), anyhow::Error>(())
-        });
+                log::debug!("sender stop {:?}", result);
 
-        let mut channel = connect()?;
+                Ok::<(), anyhow::Error>(())
+            });
 
-        for i in 0..100 {
-            channel
-                .sink
-                .send((channel.id, format!("Echo {}", i)))
-                .await?;
+            let mut channel = connect()?;
+
+            for i in 0..100 {
+                log::debug!("send {}", i);
+                channel
+                    .sink
+                    .send((channel.id, format!("Echo {}", i)))
+                    .await?;
+            }
         }
 
         Ok(())
