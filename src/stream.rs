@@ -16,25 +16,20 @@ pub trait MuxStream: Stream {
         MX::Error: std::error::Error + Send + Sync + 'static,
         Id: Clone,
     {
-        self.flat_map(move |item| {
-            log::debug!("incoming ...");
+        self.flat_map(move |item| match mx.lock().unwrap().incoming(item) {
+            Ok((id, input, closed)) => {
+                let stream = if closed {
+                    futures::stream::iter(vec![Ok((id.clone(), Some(input))), Ok((id, None))])
+                } else {
+                    futures::stream::iter(vec![Ok((id.clone(), Some(input)))])
+                };
 
-            match mx.lock().unwrap().incoming(item) {
-                Ok((id, input, closed)) => {
-                    let stream = if closed {
-                        futures::stream::iter(vec![Ok((id.clone(), Some(input))), Ok((id, None))])
-                    } else {
-                        futures::stream::iter(vec![Ok((id.clone(), Some(input)))])
-                    };
-
-                    stream.to_any_stream()
-                }
-                Err(err) => futures::stream::iter(vec![Err::<
-                    (Id, Option<MX::Input>),
-                    anyhow::Error,
-                >(err.into())])
-                .to_any_stream(),
+                stream.to_any_stream()
             }
+            Err(err) => futures::stream::iter(vec![Err::<(Id, Option<MX::Input>), anyhow::Error>(
+                err.into(),
+            )])
+            .to_any_stream(),
         })
         .to_any_stream()
     }
