@@ -125,11 +125,11 @@ where
     }
 }
 
-#[derive(Debug)]
 pub struct MultiplexerChannel<Id, Output, Input> {
     pub id: Id,
     pub stream: Receiver<Input>,
     pub sink: Sender<(Id, Output)>,
+    pub disconnect: Box<dyn FnOnce(Id) + Send>,
     _marker: PhantomData<Output>,
 }
 
@@ -185,6 +185,8 @@ impl<Id, Output, Input> Multiplexer<Id, Output, Input> {
 
         let output_sender_connect = output_sender.clone();
 
+        let disconnect = on_disconnect.clone();
+
         let connect = move || -> Result<MultiplexerChannel<Id, Output, Input>, anyhow::Error> {
             let id = mx.lock().unwrap().connect()?;
 
@@ -197,8 +199,11 @@ impl<Id, Output, Input> Multiplexer<Id, Output, Input> {
                 sink: output_sender_connect.clone(),
                 stream: input_receiver,
                 _marker: PhantomData,
+                disconnect: disconnect.clone(),
             })
         };
+
+        let disconnect = on_disconnect.clone();
 
         let incoming = on_connect_receiver
             .map(move |(id, receiver)| {
@@ -207,6 +212,7 @@ impl<Id, Output, Input> Multiplexer<Id, Output, Input> {
                     sink: output_sender.clone(),
                     stream: receiver,
                     _marker: PhantomData,
+                    disconnect: disconnect.clone(),
                 };
 
                 channel
