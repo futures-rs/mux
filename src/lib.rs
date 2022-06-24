@@ -129,7 +129,7 @@ pub struct MultiplexerChannel<Id, Output, Input> {
     pub id: Id,
     pub stream: Receiver<Input>,
     pub sink: Sender<(Id, Output)>,
-    pub disconnect: Box<dyn FnOnce(Id) + Send>,
+    pub disconnect: Box<dyn FnMut(Id) + Send>,
     _marker: PhantomData<Output>,
 }
 
