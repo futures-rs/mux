@@ -65,7 +65,9 @@ where
                     Some(Ok((id, input))) => {
                         self.dipsatch_incoming(id, input).await?;
                     }
-                    Some(Err(err)) => return Err(err),
+                    Some(Err(err)) => {
+                        log::debug!("handle incoming error {}", err);
+                    }
                     None => return Ok(()),
                 },
             };
