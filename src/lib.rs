@@ -135,6 +135,28 @@ pub struct MultiplexerChannel<Id, Output, Input> {
     _marker: PhantomData<Output>,
 }
 
+impl<Id, Output, Input> MultiplexerChannel<Id, Output, Input>
+where
+    Id: Clone,
+{
+    pub fn disconnect(&mut self) {
+        let disconnect = &mut self.disconnect;
+
+        disconnect(self.id.clone());
+    }
+
+    pub async fn next(&mut self) -> Option<Input> {
+        self.stream.next().await
+    }
+
+    pub async fn send(&mut self, output: Output) -> Result<(), anyhow::Error> {
+        self.sink
+            .send((self.id.clone(), output))
+            .await
+            .map_err(|err| anyhow::Error::new(err))
+    }
+}
+
 pub type Connector<Id, Output, Input> =
     Box<dyn FnMut() -> Result<MultiplexerChannel<Id, Output, Input>, anyhow::Error>>;
 
