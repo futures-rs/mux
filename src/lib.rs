@@ -258,6 +258,7 @@ mod tests {
     use super::*;
 
     use async_std::task::spawn;
+    use futures_any::stream_sink::AnySinkEx;
 
     struct NullMultiplexer(u32);
 
@@ -313,7 +314,12 @@ mod tests {
             mut event_loop,
             mut incoming,
             ..
-        } = Multiplexer::new(read, write, NullMultiplexer(0), 2);
+        } = Multiplexer::new(
+            read.to_any_stream(),
+            write.to_any_sink(),
+            NullMultiplexer(0),
+            2,
+        );
 
         spawn(async move {
             event_loop.run().await?;
@@ -326,7 +332,7 @@ mod tests {
             let handle = spawn(async move {
                 while let Some(data) = channel.stream.next().await {
                     log::debug!("recv {} {}", channel.id, data);
-                    // channel.sink.send((channel.id, "Echo".to_owned())).await?;
+                    channel.sink.send((channel.id, "Echo".to_owned())).await?;
                 }
 
                 Ok::<(), anyhow::Error>(())
