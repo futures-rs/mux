@@ -4,6 +4,7 @@ pub mod stream;
 
 use std::{
     collections::HashMap,
+    fmt::Debug,
     hash::Hash,
     marker::PhantomData,
     sync::{Arc, Mutex},
@@ -31,7 +32,8 @@ pub struct MultiplexerLoop<Id, Output, Input> {
 
 impl<Id, Output, Input> MultiplexerLoop<Id, Output, Input>
 where
-    Id: Eq + Hash + Clone,
+    Id: Eq + Hash + Clone + Debug,
+    Input: Debug,
 {
     pub fn new(
         stream: AnyStream<Result<(Id, Option<Input>), anyhow::Error>>,
@@ -92,6 +94,7 @@ where
         id: Id,
         input: Option<Input>,
     ) -> Result<(), anyhow::Error> {
+        log::trace!("{:?} {:?}", id, input);
         let mut sender = self.dispatcher.lock().unwrap().remove(&id);
 
         if input.is_none() && sender.is_some() {
@@ -103,7 +106,7 @@ where
 
             sender = Some(s);
 
-            // log::debug!("new connect {}", id);
+            log::trace!("new connect {:?}", id);
 
             self.on_connect.send((id.clone(), r)).await?;
         }
@@ -112,7 +115,7 @@ where
 
         match sender.send(input.unwrap()).await {
             Err(err) => {
-                // log::debug!("disconnect {}", id);
+                log::trace!("disconnect {:?}", id);
                 if err.is_disconnected() {
                     let f = &mut self.on_disconnect;
                     f(id);
@@ -176,8 +179,8 @@ impl<Id, Output, Input> Multiplexer<Id, Output, Input> {
             + MultiplexerIncoming<R::Item, Error = Error, Input = Input, Id = Id>
             + Send,
         W::Error: std::error::Error + Send + Sync + 'static,
-        Id: Eq + Hash + Clone + 'static,
-        Input: 'static,
+        Id: Eq + Hash + Clone + 'static + Debug,
+        Input: 'static + Debug,
         Output: 'static,
         MX: 'static,
     {
@@ -268,7 +271,7 @@ mod tests {
         type Input = String;
 
         fn incoming(&mut self, data: String) -> Result<(Self::Id, Self::Input, bool), Self::Error> {
-            log::debug!("incoming .... {}", data);
+            log::trace!("incoming .... {}", data);
             Ok((self.0, data, false))
         }
 
@@ -304,7 +307,7 @@ mod tests {
         });
 
         let write = futures::sink::unfold((), |_, data: String| async move {
-            log::debug!("send {}", data);
+            log::trace!("send {}", data);
             Ok::<_, futures::never::Never>(())
         });
 
@@ -328,10 +331,10 @@ mod tests {
         });
 
         while let Some(mut channel) = incoming.next().await {
-            log::debug!("accept {}", channel.id);
+            log::trace!("accept {}", channel.id);
             let handle = spawn(async move {
                 while let Some(data) = channel.stream.next().await {
-                    log::debug!("recv {} {}", channel.id, data);
+                    log::trace!("recv {} {}", channel.id, data);
                     channel.sink.send((channel.id, "Echo".to_owned())).await?;
                 }
 
@@ -340,7 +343,7 @@ mod tests {
 
             let result = handle.await;
 
-            log::debug!("accept {} quit {:?}", channel.id, result);
+            log::trace!("accept {} quit {:?}", channel.id, result);
         }
 
         Ok(())
@@ -353,7 +356,7 @@ mod tests {
         let read = futures::stream::poll_fn(|_| -> Poll<Option<String>> { Poll::Pending });
 
         let write = futures::sink::unfold((), |_, data: String| async move {
-            log::debug!("send {}", data);
+            log::trace!("send {}", data);
             Ok::<_, futures::never::Never>(())
         });
 
@@ -367,11 +370,11 @@ mod tests {
             } = Multiplexer::new(read, write, NullMultiplexer(0), 2);
 
             spawn(async move {
-                log::debug!("start event loop");
+                log::trace!("start event loop");
 
                 let result = event_loop.run().await;
 
-                log::debug!("sender stop {:?}", result);
+                log::trace!("sender stop {:?}", result);
 
                 Ok::<(), anyhow::Error>(())
             });
@@ -379,7 +382,7 @@ mod tests {
             let mut channel = connect()?;
 
             for i in 0..100 {
-                log::debug!("send {}", i);
+                log::trace!("send {}", i);
                 channel
                     .sink
                     .send((channel.id, format!("Echo {}", i)))
