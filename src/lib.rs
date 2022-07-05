@@ -7,7 +7,7 @@ use std::{
     fmt::Debug,
     hash::Hash,
     marker::PhantomData,
-    sync::{Arc, Mutex},
+    sync::{atomic::AtomicBool, Arc, Mutex},
 };
 
 use futures::{
@@ -28,6 +28,13 @@ pub struct MultiplexerLoop<Id, Output, Input> {
     cached: usize,
     sink: AnySink<(Id, Output), anyhow::Error>,
     receiver: Receiver<(Id, Output)>,
+    closed: Arc<AtomicBool>,
+}
+
+impl<Id, Output, Input> Drop for MultiplexerLoop<Id, Output, Input> {
+    fn drop(&mut self) {
+        self.closed.swap(true, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
 impl<Id, Output, Input> MultiplexerLoop<Id, Output, Input>
@@ -38,14 +45,17 @@ where
     pub fn new(
         stream: AnyStream<Result<(Id, Option<Input>), anyhow::Error>>,
         sink: AnySink<(Id, Output), anyhow::Error>,
+        dispatcher: Arc<Mutex<HashMap<Id, Sender<Input>>>>,
         receiver: Receiver<(Id, Output)>,
         on_connect: Sender<(Id, Receiver<Input>)>,
         on_disconnect: Box<dyn FnMut(Id) + Send>,
         cached: usize,
+        closed: Arc<AtomicBool>,
     ) -> Self {
         MultiplexerLoop {
+            closed,
             stream,
-            dispatcher: Default::default(),
+            dispatcher,
             on_connect,
             on_disconnect,
             cached,
@@ -179,8 +189,8 @@ impl<Id, Output, Input> Multiplexer<Id, Output, Input> {
             + MultiplexerIncoming<R::Item, Error = Error, Input = Input, Id = Id>
             + Send,
         W::Error: std::error::Error + Send + Sync + 'static,
-        Id: Eq + Hash + Clone + 'static + Debug,
-        Input: 'static + Debug,
+        Id: Eq + Hash + Clone + 'static + Debug + Send,
+        Input: 'static + Debug + Send,
         Output: 'static,
         MX: 'static,
     {
@@ -193,19 +203,29 @@ impl<Id, Output, Input> Multiplexer<Id, Output, Input> {
 
         let mx_disconnect = mx.clone();
 
+        let dispatcher: Arc<Mutex<HashMap<Id, Sender<Input>>>> = Default::default();
+
+        let dispatcher_disconnect = dispatcher.clone();
+
         let on_disconnect = Box::new(move |id| {
+            dispatcher_disconnect.lock().unwrap().remove(&id);
+
             mx_disconnect.lock().unwrap().disconnect(id);
         });
 
         let (output_sender, output_receiver) = channel::<(Id, Output)>(cached);
 
+        let closed = Arc::new(AtomicBool::new(false));
+
         let event_loop = MultiplexerLoop::new(
             stream,
             sink,
+            dispatcher,
             output_receiver,
             on_connct_sender,
             on_disconnect.clone(),
             cached,
+            closed.clone(),
         );
 
         let dispatcher = event_loop.dispatcher.clone();
@@ -215,6 +235,10 @@ impl<Id, Output, Input> Multiplexer<Id, Output, Input> {
         let disconnect = on_disconnect.clone();
 
         let connect = move || -> Result<MultiplexerChannel<Id, Output, Input>, anyhow::Error> {
+            if closed.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(anyhow::format_err!("Closed"));
+            }
+
             let id = mx.lock().unwrap().connect()?;
 
             let (input_sender, input_receiver) = channel::<Input>(cached);
@@ -351,7 +375,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_connect() -> anyhow::Result<()> {
-        pretty_env_logger::init();
+        // pretty_env_logger::init();
 
         let read = futures::stream::poll_fn(|_| -> Poll<Option<String>> { Poll::Pending });
 
