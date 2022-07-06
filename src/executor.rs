@@ -188,6 +188,7 @@ where
                             r,
                             self.sink_sender.clone(),
                             move || {
+                                log::debug!("call disconnect func {}", channel_id.to_string());
                                 channel_stream_senders.lock().unwrap().remove(&channel_id);
                                 channel_stream_mux.lock().unwrap().disconnect(channel_id);
                             },
@@ -236,6 +237,8 @@ where
 
         let channel_stream_senders = self.stream_senders.clone();
 
+        let channel_stream_mux = self.mux.clone();
+
         let buffer = self.buffer;
 
         move || match mux.lock().unwrap().connect() {
@@ -246,12 +249,16 @@ where
 
                 let channel_stream_senders = channel_stream_senders.clone();
 
+                let channel_stream_mux = channel_stream_mux.clone();
+
                 Ok(Channel::new(
                     id.clone(),
                     r,
                     sink_sender.clone(),
                     move || {
+                        log::debug!("call disconnect func {}", id);
                         channel_stream_senders.lock().unwrap().remove(&id);
+                        channel_stream_mux.lock().unwrap().disconnect(id);
                     },
                 ))
             }

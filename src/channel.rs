@@ -69,6 +69,8 @@ where
 
     /// The function support reentery, but only first time has side effects
     pub fn disconnect(&mut self) {
+        log::debug!("disconnect {}", self.id);
+
         // Only execute once
         if self.disconnect.is_none() {
             return;
@@ -77,6 +79,8 @@ where
         let disconnect = self.disconnect.take().expect("call channel close twice");
 
         disconnect();
+
+        log::debug!("disconnect {} -- success", self.id.to_string());
     }
 
     pub fn is_disconnected(&mut self) -> bool {
