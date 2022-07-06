@@ -255,6 +255,13 @@ where
             Err(err) => Err(err),
         }
     }
+
+    // Get executor connection accounter
+    pub fn connection_accounter(&self) -> impl FnMut() -> usize {
+        let channel_stream_senders = self.stream_senders.clone();
+
+        move || channel_stream_senders.lock().unwrap().len()
+    }
 }
 
 #[cfg(test)]
@@ -331,6 +338,8 @@ mod tests {
 
         let mut connector = executor.connector();
 
+        let mut accounter = executor.connection_accounter();
+
         async_std::task::spawn(async move {
             executor.join().await?;
 
@@ -338,6 +347,9 @@ mod tests {
         });
 
         for i in 1..100 {
+            // connection raii test
+            assert_eq!(accounter(), 0);
+
             incoming_sender.send(Ok(i)).await?;
 
             let connection = incoming.next().await;
@@ -357,10 +369,10 @@ mod tests {
             assert_eq!(outgoing_receiver.next().await, Some(i));
 
             assert_eq!(outgoing_receiver.next().await, Some(i));
+
+            assert_eq!(accounter(), 2);
         }
 
         Ok(())
     }
-
-    // TODO: test connection drop
 }
