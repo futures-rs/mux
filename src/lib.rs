@@ -3,8 +3,7 @@ use std::{
     hash::Hash,
 };
 
-use channel::Channel;
-use futures::{channel::mpsc::Receiver, AsyncRead, AsyncWrite, Sink, Stream, StreamExt};
+use futures::{Sink, Stream, StreamExt};
 use futures_any::stream_sink::{AnySinkEx, AnyStreamEx};
 use multiplexing::{MultiplexerIncoming, MultiplexerOutgoing};
 
@@ -53,7 +52,7 @@ where
         + Send
         + 'static,
     Mux::Input: Send + 'static,
-    IO: AsyncRead + AsyncWrite,
+    IO: futures::AsyncRead + futures::AsyncWrite,
     Codec: futures_framed::Decoder<Item = Input, Error = Error>
         + futures_framed::Encoder<Mux::MuxOutput, Error = Error>,
 {
@@ -66,14 +65,15 @@ where
 pub mod async_std {
 
     use super::*;
+    use futures::channel::mpsc::*;
 
     pub fn new<Mux, Id, Output, Input, Error, S>(
         s: S,
         mux: Mux,
         buffer: usize,
     ) -> (
-        Receiver<Channel<Id, Output, Mux::Input, Error>>,
-        impl FnMut() -> Result<Channel<Id, Output, Mux::Input, Error>, Error> + 'static,
+        Receiver<channel::Channel<Id, Output, Mux::Input, Error>>,
+        impl FnMut() -> Result<channel::Channel<Id, Output, Mux::Input, Error>, Error> + 'static,
     )
     where
         Id: Display + Clone + Eq + Hash + Send + Sync,
@@ -110,8 +110,8 @@ pub mod async_std {
         mux: Mux,
         buffer: usize,
     ) -> (
-        Receiver<Channel<Id, Output, Mux::Input, Error>>,
-        impl FnMut() -> Result<Channel<Id, Output, Mux::Input, Error>, Error> + 'static,
+        Receiver<channel::Channel<Id, Output, Mux::Input, Error>>,
+        impl FnMut() -> Result<channel::Channel<Id, Output, Mux::Input, Error>, Error> + 'static,
     )
     where
         Id: Display + Clone + Eq + Hash + Send + Sync,
@@ -124,7 +124,7 @@ pub mod async_std {
             + 'static,
         Mux::Input: Send + 'static,
         Mux::MuxOutput: Send + 'static,
-        IO: AsyncRead + AsyncWrite + 'static,
+        IO: futures::AsyncRead + futures::AsyncWrite + 'static,
         Codec: futures_framed::Decoder<Item = Input, Error = Error>
             + futures_framed::Encoder<Mux::MuxOutput, Error = Error>
             + 'static,
@@ -140,13 +140,15 @@ pub mod tokio {
 
     use super::*;
 
+    use futures::channel::mpsc::*;
+
     pub fn new<Mux, Id, Output, Input, Error, S>(
         s: S,
         mux: Mux,
         buffer: usize,
     ) -> (
-        Receiver<Channel<Id, Output, Mux::Input, Error>>,
-        impl FnMut() -> Result<Channel<Id, Output, Mux::Input, Error>, Error> + 'static,
+        Receiver<channel::Channel<Id, Output, Mux::Input, Error>>,
+        impl FnMut() -> Result<channel::Channel<Id, Output, Mux::Input, Error>, Error> + 'static,
     )
     where
         Id: Display + Clone + Eq + Hash + Send + Sync,
@@ -183,8 +185,8 @@ pub mod tokio {
         mux: Mux,
         buffer: usize,
     ) -> (
-        Receiver<Channel<Id, Output, Mux::Input, Error>>,
-        impl FnMut() -> Result<Channel<Id, Output, Mux::Input, Error>, Error> + 'static,
+        Receiver<channel::Channel<Id, Output, Mux::Input, Error>>,
+        impl FnMut() -> Result<channel::Channel<Id, Output, Mux::Input, Error>, Error> + 'static,
     )
     where
         Id: Display + Clone + Eq + Hash + Send + Sync,
@@ -197,7 +199,7 @@ pub mod tokio {
             + 'static,
         Mux::Input: Send + 'static,
         Mux::MuxOutput: Send + 'static,
-        IO: AsyncRead + AsyncWrite + 'static,
+        IO: futures::AsyncRead + futures::AsyncWrite + 'static,
         Codec: futures_framed::Decoder<Item = Input, Error = Error>
             + futures_framed::Encoder<Mux::MuxOutput, Error = Error>
             + 'static,
