@@ -4,31 +4,34 @@
 //!
 //! - Implement the [`MultiplexerIncoming`] trait for unpack incoming mux datagram to underlying protocol datagram
 //! - Implement the [`MultiplexerOutgoing`] trait for pack underlying protocol datagram to mux datagram
-//!
+
+use std::{
+    fmt::{Debug, Display},
+    io,
+};
 
 pub trait MultiplexerIncoming<MuxInput> {
-    type Error: std::error::Error;
+    type Error: From<io::Error>;
 
-    type Input;
+    type Input: Debug;
 
-    type Id;
+    type Id: Display;
 
     /// The success returns value is tuple (id,input,disconnect_flag)
     fn incoming(&mut self, data: MuxInput) -> Result<(Self::Id, Self::Input, bool), Self::Error>;
 
+    /// Disconnect channel by id
     fn disconnect(&mut self, id: Self::Id);
 }
 
 pub trait MultiplexerOutgoing<Output> {
-    type Error: std::error::Error;
+    type Error: From<io::Error>;
 
-    type MuxOutput;
+    type MuxOutput: Debug;
 
-    type Id;
+    type Id: Display;
 
     /// Pack underlying protocol output datagram to mux datagram and return new channel id if necessary.
-    ///
-    /// * `id` - The outgoing mux channel id, if id is `None` indicate that this is a new channel outgoing data
     fn outgoing(&mut self, data: Output, id: Self::Id) -> Result<Self::MuxOutput, Self::Error>;
 
     /// Create new channel and return channel id
