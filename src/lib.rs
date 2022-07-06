@@ -11,6 +11,10 @@ pub mod channel;
 pub mod executor;
 pub mod multiplexing;
 
+pub use futures;
+pub use futures_any;
+pub use futures_framed;
+
 /// Create new mux executor with input io stream/sink
 pub fn new<Mux, Id, Output, Input, Error, S>(
     s: S,
@@ -61,6 +65,9 @@ where
     new(framed, mux, buffer)
 }
 
+pub type Connector<Id, Output, Input, Error> =
+    Box<dyn FnMut() -> Result<channel::Channel<Id, Output, Input, Error>, Error> + 'static>;
+
 #[cfg(feature = "use-async-std")]
 pub mod async_std {
 
@@ -73,7 +80,7 @@ pub mod async_std {
         buffer: usize,
     ) -> (
         Receiver<channel::Channel<Id, Output, Mux::Input, Error>>,
-        impl FnMut() -> Result<channel::Channel<Id, Output, Mux::Input, Error>, Error> + 'static,
+        Connector<Id, Output, Mux::Input, Error>,
     )
     where
         Id: Display + Clone + Eq + Hash + Send + Sync,
@@ -99,7 +106,7 @@ pub mod async_std {
             log::info!("executor join result({:?})", result);
         });
 
-        (incoming, connector)
+        (incoming, Box::new(connector))
     }
 
     #[cfg(feature = "use-framed")]
@@ -111,7 +118,7 @@ pub mod async_std {
         buffer: usize,
     ) -> (
         Receiver<channel::Channel<Id, Output, Mux::Input, Error>>,
-        impl FnMut() -> Result<channel::Channel<Id, Output, Mux::Input, Error>, Error> + 'static,
+        Connector<Id, Output, Mux::Input, Error>,
     )
     where
         Id: Display + Clone + Eq + Hash + Send + Sync,
@@ -148,7 +155,7 @@ pub mod tokio {
         buffer: usize,
     ) -> (
         Receiver<channel::Channel<Id, Output, Mux::Input, Error>>,
-        impl FnMut() -> Result<channel::Channel<Id, Output, Mux::Input, Error>, Error> + 'static,
+        Connector<Id, Output, Mux::Input, Error>,
     )
     where
         Id: Display + Clone + Eq + Hash + Send + Sync,
@@ -174,7 +181,7 @@ pub mod tokio {
             log::info!("executor join result({:?})", result);
         });
 
-        (incoming, connector)
+        (incoming, Box::new(connector))
     }
 
     #[cfg(feature = "use-framed")]
@@ -186,7 +193,7 @@ pub mod tokio {
         buffer: usize,
     ) -> (
         Receiver<channel::Channel<Id, Output, Mux::Input, Error>>,
-        impl FnMut() -> Result<channel::Channel<Id, Output, Mux::Input, Error>, Error> + 'static,
+        Connector<Id, Output, Mux::Input, Error>,
     )
     where
         Id: Display + Clone + Eq + Hash + Send + Sync,
