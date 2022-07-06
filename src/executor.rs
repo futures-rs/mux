@@ -180,6 +180,8 @@ where
 
                     let channel_stream_senders = self.stream_senders.clone();
 
+                    let channel_stream_mux = self.mux.clone();
+
                     channel_sender
                         .send(Channel::new(
                             id.clone(),
@@ -187,6 +189,7 @@ where
                             self.sink_sender.clone(),
                             move || {
                                 channel_stream_senders.lock().unwrap().remove(&channel_id);
+                                channel_stream_mux.lock().unwrap().disconnect(channel_id);
                             },
                         ))
                         .await
