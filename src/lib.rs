@@ -13,6 +13,8 @@ pub mod multiplexing;
 
 pub use futures;
 pub use futures_any;
+
+#[cfg(feature = "use-framed")]
 pub use futures_framed;
 
 /// Create new mux executor with input io stream/sink
