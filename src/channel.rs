@@ -22,6 +22,19 @@ where
     disconnect: Option<Box<dyn FnOnce() + Send>>,
 }
 
+/// Implement display trait
+impl<Id, Output, Input, Error> Display for Channel<Id, Output, Input, Error>
+where
+    Id: Display + Clone + 'static,
+    Output: Debug,
+    Input: Debug,
+    Error: From<std::io::Error> + 'static,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "mux channel {}", self.id)
+    }
+}
+
 /// Support unpin
 impl<Id, Output, Input, Error> Unpin for Channel<Id, Output, Input, Error>
 where
